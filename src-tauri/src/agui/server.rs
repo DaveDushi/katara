@@ -157,8 +157,48 @@ async fn agui_handler_inner(
             return;
         }
 
-        // 3. Build Gen-UI tool context from CopilotKit's tools array.
-        //    This tells Claude about frontend-registered actions it can invoke.
+        // 3a. Build readable context from CopilotKit's context array.
+        //     useCopilotReadable() data arrives here — current workspace state
+        //     so the agent can see what the user has edited in the forms.
+        let readable_context = if let Some(ref ctx) = input.context {
+            let parts: Vec<String> = ctx
+                .iter()
+                .filter_map(|c| {
+                    let desc = c.get("description").and_then(|d| d.as_str()).unwrap_or("");
+                    let value = c.get("value");
+                    if let Some(val) = value {
+                        if val.is_null() {
+                            return None;
+                        }
+                        let val_str = if val.is_string() {
+                            val.as_str().unwrap_or("").to_string()
+                        } else {
+                            serde_json::to_string_pretty(val).unwrap_or_default()
+                        };
+                        if val_str.is_empty() || val_str == "null" {
+                            return None;
+                        }
+                        Some(format!("[{}]\n{}", desc, val_str))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            if parts.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "\n\n[CURRENT WORKSPACE STATE — the user can edit these fields directly. Always read the latest values from here before responding:]\n{}\n\n",
+                    parts.join("\n\n")
+                )
+            }
+        } else {
+            String::new()
+        };
+
+        // 3b. Build Gen-UI tool context from CopilotKit's tools array.
+        //     This tells Claude about frontend-registered actions it can invoke.
         let tools_context = if let Some(ref tools) = input.tools {
             let tool_descriptions: Vec<String> = tools
                 .iter()
@@ -192,12 +232,8 @@ async fn agui_handler_inner(
             String::new()
         };
 
-        // 4. Combine tools context + user message
-        let full_message = if tools_context.is_empty() {
-            user_message.clone()
-        } else {
-            format!("{}{}", tools_context, user_message)
-        };
+        // 4. Combine readable context + tools context + user message
+        let full_message = format!("{}{}{}", readable_context, tools_context, user_message);
 
         // 5. Find the active session and send the message.
         //    Wait up to 15s for a CLI to connect (handles race where

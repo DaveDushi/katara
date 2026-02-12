@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
-import { MessageSquare, Plus, Circle, Package, FileText, Sparkles } from "lucide-react";
+import { MessageSquare, Plus, Circle, Package, FileText, Sparkles, X, PlusCircle } from "lucide-react";
 import { CopilotChat } from "@copilotkit/react-ui";
-import { useFrontendTool } from "@copilotkit/react-core";
+import { useFrontendTool, useCopilotReadable } from "@copilotkit/react-core";
 import { useSessionStore } from "../stores/sessionStore";
 import { useAppStore } from "../stores/appStore";
 
@@ -38,11 +38,45 @@ function toStringArray(val: unknown): string[] {
   return [];
 }
 
+// ─── Shared input styles ───────────────────────────────────────────────
+
+const inputClass =
+  "w-full mt-1 px-3 py-2 bg-slate-800/60 rounded-lg text-sm text-slate-200 border border-slate-700/50 focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 outline-none placeholder:text-slate-600 transition-colors";
+
+const textareaClass =
+  "w-full mt-1 px-3 py-2 bg-slate-800/60 rounded-lg text-sm text-slate-200 border border-slate-700/50 focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/20 outline-none placeholder:text-slate-600 resize-y min-h-[80px] transition-colors";
+
 // ─── Workspace panels ──────────────────────────────────────────────────
 
-function ProductInputPanel({ data, status }: { data: ProductData | null; status: string }) {
+function ProductInputPanel({
+  data,
+  status,
+  onChange,
+}: {
+  data: ProductData | null;
+  status: string;
+  onChange: (updated: ProductData) => void;
+}) {
   const features = toStringArray(data?.features);
   const isLoading = status === "loading";
+
+  const update = (field: keyof ProductData, value: string | string[]) => {
+    onChange({ ...data, [field]: value });
+  };
+
+  const updateFeature = (index: number, value: string) => {
+    const next = [...features];
+    next[index] = value;
+    update("features", next);
+  };
+
+  const removeFeature = (index: number) => {
+    update("features", features.filter((_, i) => i !== index));
+  };
+
+  const addFeature = () => {
+    update("features", [...features, ""]);
+  };
 
   return (
     <div className="rounded-xl border border-slate-700/50 bg-slate-900/50 overflow-hidden">
@@ -57,44 +91,103 @@ function ProductInputPanel({ data, status }: { data: ProductData | null; status:
         )}
       </div>
       <div className="p-4 space-y-3">
-        {!data ? (
-          <p className="text-sm text-slate-500 text-center py-6">
-            Ask the agent to gather product details. They'll appear here.
-          </p>
-        ) : (
-          <>
-            {data.title && (
-              <Field label="Title" value={data.title} />
+        <div>
+          <label className="text-xs text-slate-500 uppercase tracking-wide">Title</label>
+          <input
+            className={inputClass}
+            placeholder="Product title"
+            value={data?.title ?? ""}
+            onChange={(e) => update("title", e.target.value)}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-slate-500 uppercase tracking-wide">Brand</label>
+            <input
+              className={inputClass}
+              placeholder="Brand name"
+              value={data?.brand ?? ""}
+              onChange={(e) => update("brand", e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 uppercase tracking-wide">Category</label>
+            <input
+              className={inputClass}
+              placeholder="Product category"
+              value={data?.category ?? ""}
+              onChange={(e) => update("category", e.target.value)}
+            />
+          </div>
+        </div>
+        <div>
+          <div className="flex items-center justify-between">
+            <label className="text-xs text-slate-500 uppercase tracking-wide">Key Features</label>
+            <button
+              onClick={addFeature}
+              className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              <PlusCircle size={12} />
+              Add
+            </button>
+          </div>
+          <div className="mt-1 space-y-1.5">
+            {features.length === 0 && (
+              <p className="text-xs text-slate-600 py-2">No features yet — add manually or let the agent fill them in.</p>
             )}
-            {data.brand && (
-              <Field label="Brand" value={data.brand} />
-            )}
-            {data.category && (
-              <Field label="Category" value={data.category} />
-            )}
-            {features.length > 0 && (
-              <div>
-                <label className="text-xs text-slate-500 uppercase tracking-wide">Key Features</label>
-                <ul className="mt-1 space-y-1">
-                  {features.map((f, i) => (
-                    <li key={i} className="flex items-start gap-2 px-3 py-1.5 bg-slate-800/60 rounded-lg text-sm text-slate-200 border border-slate-700/50">
-                      <span className="text-blue-400 mt-0.5">•</span>
-                      {f}
-                    </li>
-                  ))}
-                </ul>
+            {features.map((f, i) => (
+              <div key={i} className="flex items-center gap-1.5">
+                <span className="text-blue-400 text-xs shrink-0">•</span>
+                <input
+                  className="flex-1 px-2 py-1.5 bg-slate-800/60 rounded-lg text-sm text-slate-200 border border-slate-700/50 focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 outline-none placeholder:text-slate-600 transition-colors"
+                  value={f}
+                  placeholder="Feature description"
+                  onChange={(e) => updateFeature(i, e.target.value)}
+                />
+                <button
+                  onClick={() => removeFeature(i)}
+                  className="p-1 text-slate-600 hover:text-red-400 transition-colors shrink-0"
+                >
+                  <X size={14} />
+                </button>
               </div>
-            )}
-          </>
-        )}
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-function ListingOutputPanel({ data, status }: { data: ListingData | null; status: string }) {
+function ListingOutputPanel({
+  data,
+  status,
+  onChange,
+}: {
+  data: ListingData | null;
+  status: string;
+  onChange: (updated: ListingData) => void;
+}) {
   const bullets = toStringArray(data?.bullets);
   const isLoading = status === "loading";
+
+  const update = (field: keyof ListingData, value: string | string[] | number) => {
+    onChange({ ...data, [field]: value });
+  };
+
+  const updateBullet = (index: number, value: string) => {
+    const next = [...bullets];
+    next[index] = value;
+    update("bullets", next);
+  };
+
+  const removeBullet = (index: number) => {
+    update("bullets", bullets.filter((_, i) => i !== index));
+  };
+
+  const addBullet = () => {
+    update("bullets", [...bullets, ""]);
+  };
 
   return (
     <div className="rounded-xl border border-slate-700/50 bg-slate-900/50 overflow-hidden">
@@ -108,70 +201,92 @@ function ListingOutputPanel({ data, status }: { data: ListingData | null; status
           </div>
         )}
       </div>
-      <div className="p-4 space-y-4">
-        {!data ? (
-          <p className="text-sm text-slate-500 text-center py-6">
-            The generated listing will appear here once the agent creates it.
-          </p>
-        ) : (
-          <>
-            {data.title && (
-              <h2 className="text-base font-medium text-slate-100 leading-snug">
-                {data.title}
-              </h2>
-            )}
+      <div className="p-4 space-y-3">
+        <div>
+          <label className="text-xs text-slate-500 uppercase tracking-wide">Title</label>
+          <input
+            className={inputClass}
+            placeholder="Listing title"
+            value={data?.title ?? ""}
+            onChange={(e) => update("title", e.target.value)}
+          />
+        </div>
 
-            {(data.rating || data.price) && (
-              <div className="flex items-center gap-4">
-                {data.rating && (
-                  <div className="flex items-center gap-1">
-                    {[1, 2, 3, 4, 5].map((star) => (
-                      <span key={star} className={`text-sm ${star <= (data.rating ?? 0) ? "text-amber-400" : "text-slate-600"}`}>
-                        ★
-                      </span>
-                    ))}
-                    <span className="text-xs text-slate-400 ml-1">{data.rating}/5</span>
-                  </div>
-                )}
-                {data.price && (
-                  <span className="text-lg font-bold text-emerald-400">{data.price}</span>
-                )}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-slate-500 uppercase tracking-wide">Price</label>
+            <input
+              className={inputClass}
+              placeholder="$0.00"
+              value={data?.price ?? ""}
+              onChange={(e) => update("price", e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 uppercase tracking-wide">Rating</label>
+            <div className="flex items-center gap-1 mt-1 h-[38px]">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  onClick={() => update("rating", star)}
+                  className={`text-lg transition-colors ${
+                    star <= (data?.rating ?? 0) ? "text-amber-400" : "text-slate-600 hover:text-slate-400"
+                  }`}
+                >
+                  ★
+                </button>
+              ))}
+              {data?.rating && (
+                <span className="text-xs text-slate-500 ml-1">{data.rating}/5</span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between">
+            <label className="text-xs text-slate-500 uppercase tracking-wide">Bullet Points</label>
+            <button
+              onClick={addBullet}
+              className="flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300 transition-colors"
+            >
+              <PlusCircle size={12} />
+              Add
+            </button>
+          </div>
+          <div className="mt-1 space-y-1.5">
+            {bullets.length === 0 && (
+              <p className="text-xs text-slate-600 py-2">No bullet points yet.</p>
+            )}
+            {bullets.map((b, i) => (
+              <div key={i} className="flex items-center gap-1.5">
+                <span className="text-emerald-400 text-xs shrink-0">•</span>
+                <input
+                  className="flex-1 px-2 py-1.5 bg-slate-800/60 rounded-lg text-sm text-slate-200 border border-slate-700/50 focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/20 outline-none placeholder:text-slate-600 transition-colors"
+                  value={b}
+                  placeholder="Bullet point"
+                  onChange={(e) => updateBullet(i, e.target.value)}
+                />
+                <button
+                  onClick={() => removeBullet(i)}
+                  className="p-1 text-slate-600 hover:text-red-400 transition-colors shrink-0"
+                >
+                  <X size={14} />
+                </button>
               </div>
-            )}
+            ))}
+          </div>
+        </div>
 
-            {bullets.length > 0 && (
-              <div className="space-y-1.5">
-                <label className="text-xs text-slate-500 uppercase tracking-wide">Key Features</label>
-                {bullets.map((b, i) => (
-                  <div key={i} className="flex items-start gap-2 text-sm text-slate-200">
-                    <span className="text-emerald-400 mt-0.5 shrink-0">•</span>
-                    <span>{b}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {data.description && (
-              <div>
-                <label className="text-xs text-slate-500 uppercase tracking-wide">Description</label>
-                <div className="mt-1 text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">
-                  {data.description}
-                </div>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <label className="text-xs text-slate-500 uppercase tracking-wide">{label}</label>
-      <div className="mt-1 px-3 py-2 bg-slate-800/60 rounded-lg text-sm text-slate-200 border border-slate-700/50">
-        {value}
+        <div>
+          <label className="text-xs text-slate-500 uppercase tracking-wide">Description</label>
+          <textarea
+            className={textareaClass}
+            placeholder="Product description"
+            value={data?.description ?? ""}
+            onChange={(e) => update("description", e.target.value)}
+          />
+        </div>
       </div>
     </div>
   );
@@ -192,11 +307,24 @@ function AgentChatInner() {
           ? "text-yellow-400"
           : "text-slate-500";
 
-  // Workspace state — updated by Gen-UI tools
+  // Workspace state — updated by Gen-UI tools and user edits
   const [productData, setProductData] = useState<ProductData | null>(null);
   const [productStatus, setProductStatus] = useState("idle");
   const [listingData, setListingData] = useState<ListingData | null>(null);
   const [listingStatus, setListingStatus] = useState("idle");
+
+  // ─── Share workspace state with the agent ─────────────────────────
+  // This lets the agent read current field values, including user edits.
+
+  useCopilotReadable({
+    description: "Current product input form data in the workspace. The user can edit these fields directly.",
+    value: productData,
+  });
+
+  useCopilotReadable({
+    description: "Current listing output data in the workspace. The user can edit these fields directly.",
+    value: listingData,
+  });
 
   // ─── Gen-UI tools (useFrontendTool) ───────────────────────────────
 
@@ -340,8 +468,8 @@ function AgentChatInner() {
         </header>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          <ProductInputPanel data={productData} status={productStatus} />
-          <ListingOutputPanel data={listingData} status={listingStatus} />
+          <ProductInputPanel data={productData} status={productStatus} onChange={setProductData} />
+          <ListingOutputPanel data={listingData} status={listingStatus} onChange={setListingData} />
         </div>
       </div>
 
