@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #e2e8f0;
+  background-color: #0f172a;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+#root {
+  height: 100vh;
+  width: 100vw;
+}
+
+/* CopilotKit dark theme overrides */
+.copilotkit-chat-container {
+  --copilot-kit-background-color: #0f172a;
+  --copilot-kit-secondary-color: #1e293b;
+  --copilot-kit-separator-color: #334155;
+  --copilot-kit-primary-color: #6d28d9;
+  --copilot-kit-contrast-color: #e2e8f0;
+  --copilot-kit-secondary-contrast-color: #94a3b8;
+  --copilot-kit-response-button-background-color: #1e293b;
+  --copilot-kit-response-button-color: #94a3b8;
+  --copilot-kit-muted-color: #64748b;
+}
+
+.copilotkit-chat-container [class*="copilotKitMessages"] {
+  background: #0f172a;
+}
+
+.copilotkit-chat-container [class*="copilotKitInput"] {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}

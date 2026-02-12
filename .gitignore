@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+*.local
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+src-tauri/WixTools/
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*

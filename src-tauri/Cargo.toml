@@ -1,0 +1,49 @@
+[package]
+name = "katara"
+version = "0.1.0"
+description = "Self-Healing Workflow Platform for AI Coding Agents"
+authors = ["Katara Contributors"]
+edition = "2021"
+
+[lib]
+name = "katara_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Tauri
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+
+# HTTP server (AG-UI endpoint)
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
+
+# WebSocket (Claude CLI bridge)
+tokio-tungstenite = "0.26"
+futures-util = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# Markdown parsing
+pulldown-cmark = "0.12"
+
+# Terminal (PTY)
+portable-pty = "0.8"
+
+# Error handling
+thiserror = "2"
+
+# Utilities
+uuid = { version = "1", features = ["v4"] }
+glob = "0.3"
+dirs = "6"
