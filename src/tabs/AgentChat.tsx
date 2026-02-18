@@ -1,9 +1,11 @@
 import { useCallback, useState } from "react";
-import { MessageSquare, Plus, Circle, Package, FileText, Sparkles, X, PlusCircle } from "lucide-react";
+import { MessageSquare, Plus, Circle, Package, FileText, Sparkles, X, PlusCircle, DollarSign } from "lucide-react";
 import { CopilotChat } from "@copilotkit/react-ui";
 import { useFrontendTool, useCopilotReadable } from "@copilotkit/react-core";
 import { useSessionStore } from "../stores/sessionStore";
 import { useAppStore } from "../stores/appStore";
+import ToolApprovalBanner from "../components/ToolApprovalBanner";
+import PermissionModeSelector from "../components/PermissionModeSelector";
 
 // ─── Workspace state types ─────────────────────────────────────────────
 
@@ -294,10 +296,24 @@ function ListingOutputPanel({
 
 // ─── Inner component (inside CopilotKit provider) ──────────────────────
 
+function formatModelShort(model?: string): string {
+  if (!model) return "Sonnet";
+  if (model.includes("opus")) return "Opus";
+  if (model.includes("haiku")) return "Haiku";
+  return "Sonnet";
+}
+
+function formatCost(usd: number): string {
+  if (usd < 0.01) return "$0.00";
+  return `$${usd.toFixed(4)}`;
+}
+
 function AgentChatInner() {
-  const { activeSessionId, sessions, interruptSession } = useSessionStore();
+  const { activeSessionId, sessions, interruptSession, sessionUsage } =
+    useSessionStore();
 
   const activeSession = sessions.find((s) => s.id === activeSessionId);
+  const usage = activeSessionId ? sessionUsage[activeSessionId] : undefined;
   const statusColor =
     activeSession?.status === "Active"
       ? "text-emerald-400"
@@ -460,10 +476,31 @@ function AgentChatInner() {
         <header className="flex items-center gap-2 px-4 py-3 border-b border-slate-800 bg-slate-900 shrink-0">
           <Sparkles size={18} className="text-katara-400" />
           <h1 className="text-sm font-semibold">Agent Workspace</h1>
-          <div className="ml-auto flex items-center gap-2 text-xs">
-            <Circle size={8} className={`fill-current ${statusColor}`} />
-            <span className="text-slate-400">{activeSession?.status || "Unknown"}</span>
-            <span className="text-slate-600">{activeSessionId!.slice(0, 8)}...</span>
+          <div className="ml-auto flex items-center gap-3 text-xs">
+            <PermissionModeSelector />
+            <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">
+              {formatModelShort(activeSession?.model)}
+            </span>
+            {usage && (usage.input_tokens > 0 || usage.output_tokens > 0) && (
+              <span
+                className="flex items-center gap-1 text-slate-500"
+                title={`In: ${usage.input_tokens.toLocaleString()} | Out: ${usage.output_tokens.toLocaleString()} | Cache write: ${usage.cache_creation_input_tokens.toLocaleString()} | Cache read: ${usage.cache_read_input_tokens.toLocaleString()}`}
+              >
+                <DollarSign size={10} />
+                {formatCost(
+                  ((usage.input_tokens * 3 +
+                    usage.output_tokens * 15 +
+                    usage.cache_creation_input_tokens * 3.75 +
+                    usage.cache_read_input_tokens * 0.3) /
+                    1_000_000)
+                )}
+              </span>
+            )}
+            <div className="flex items-center gap-2">
+              <Circle size={8} className={`fill-current ${statusColor}`} />
+              <span className="text-slate-400">{activeSession?.status || "Unknown"}</span>
+              <span className="text-slate-600">{activeSessionId!.slice(0, 8)}...</span>
+            </div>
           </div>
         </header>
 
@@ -479,35 +516,68 @@ function AgentChatInner() {
           <MessageSquare size={16} className="text-slate-400" />
           <span className="text-xs font-medium text-slate-300">Chat</span>
         </div>
-        <div className="flex-1 overflow-hidden">
-          <CopilotChat
-            className="h-full"
-            instructions="You are Claude Code running inside Katara. You can render rich UI in the workspace using these tools: render_product_input (to show product details) and render_listing_output (to show a generated listing). Use these tools whenever the user asks about products or listings."
-            onStopGeneration={handleStopGeneration}
-            labels={{
-              initial: "Describe a product and I'll create a listing for it.",
-              placeholder: "Send a message...",
-            }}
-          />
+        <div className="flex-1 overflow-hidden flex flex-col">
+          <div className="flex-1 overflow-hidden">
+            <CopilotChat
+              className="h-full"
+              instructions="You are Claude Code running inside Katara. You can render rich UI in the workspace using these tools: render_product_input (to show product details) and render_listing_output (to show a generated listing). Use these tools whenever the user asks about products or listings."
+              onStopGeneration={handleStopGeneration}
+              labels={{
+                initial: "Describe a product and I'll create a listing for it.",
+                placeholder: "Send a message...",
+              }}
+            />
+          </div>
+          <ToolApprovalBanner />
         </div>
       </div>
     </div>
   );
 }
 
+// ─── Model options ────────────────────────────────────────────────────
+
+const MODEL_OPTIONS = [
+  {
+    id: "claude-sonnet-4-5-20250929",
+    label: "Sonnet 4.5",
+    description: "Fast and capable",
+    color: "text-blue-400",
+    bgActive: "bg-blue-500/10 border-blue-500/40",
+  },
+  {
+    id: "claude-opus-4-5-20250918",
+    label: "Opus 4.5",
+    description: "Most powerful",
+    color: "text-purple-400",
+    bgActive: "bg-purple-500/10 border-purple-500/40",
+  },
+  {
+    id: "claude-haiku-4-5-20251001",
+    label: "Haiku 4.5",
+    description: "Fastest, lowest cost",
+    color: "text-emerald-400",
+    bgActive: "bg-emerald-500/10 border-emerald-500/40",
+  },
+] as const;
+
 // ─── Outer wrapper ─────────────────────────────────────────────────────
 
 export default function AgentChat() {
   const { activeSessionId, spawnSession } = useSessionStore();
   const runtimeUrl = useAppStore((s) => s.runtimeUrl);
+  const [selectedModel, setSelectedModel] = useState<string>(MODEL_OPTIONS[0].id);
+  const [spawning, setSpawning] = useState(false);
 
   const handleSpawnSession = useCallback(async () => {
+    setSpawning(true);
     try {
-      await spawnSession(".");
+      await spawnSession(".", undefined, selectedModel);
     } catch (e: any) {
       console.error("Failed to spawn session:", e);
     }
-  }, [spawnSession]);
+    setSpawning(false);
+  }, [spawnSession, selectedModel]);
 
   if (!runtimeUrl || !activeSessionId) {
     return (
@@ -517,20 +587,46 @@ export default function AgentChat() {
           <h1 className="text-sm font-semibold">Agent Workspace</h1>
         </header>
         <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
+          <div className="text-center max-w-md">
             <Sparkles size={48} className="mx-auto mb-4 text-slate-700" />
             <p className="text-lg font-medium text-slate-300">Start a Claude Code Session</p>
-            <p className="text-sm mt-1 text-slate-500 max-w-sm">
+            <p className="text-sm mt-1 text-slate-500">
               Spawn a new session to start chatting with Claude Code.
               {!runtimeUrl && " Waiting for backend to start..."}
             </p>
+
+            {/* Model selector */}
+            <div className="mt-6 flex gap-2 justify-center">
+              {MODEL_OPTIONS.map((model) => {
+                const isSelected = selectedModel === model.id;
+                return (
+                  <button
+                    key={model.id}
+                    onClick={() => setSelectedModel(model.id)}
+                    className={`px-3 py-2 rounded-lg border text-left transition-all ${
+                      isSelected
+                        ? `${model.bgActive} border`
+                        : "bg-slate-800/50 border-slate-700/50 hover:border-slate-600"
+                    }`}
+                  >
+                    <div className={`text-sm font-medium ${isSelected ? model.color : "text-slate-300"}`}>
+                      {model.label}
+                    </div>
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      {model.description}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
             <button
               onClick={handleSpawnSession}
-              disabled={!runtimeUrl}
-              className="mt-6 px-4 py-2 bg-katara-600 hover:bg-katara-500 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg flex items-center gap-2 mx-auto transition-colors"
+              disabled={!runtimeUrl || spawning}
+              className="mt-4 px-4 py-2 bg-katara-600 hover:bg-katara-500 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg flex items-center gap-2 mx-auto transition-colors"
             >
               <Plus size={16} />
-              New Session
+              {spawning ? "Starting..." : "New Session"}
             </button>
           </div>
         </div>

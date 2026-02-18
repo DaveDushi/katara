@@ -17,6 +17,9 @@ pub async fn spawn_claude(
     session_id: &str,
     working_dir: &str,
     initial_prompt: Option<&str>,
+    model: Option<&str>,
+    permission_mode: Option<&str>,
+    resume_session_id: Option<&str>,
 ) -> Result<tokio::process::Child, KataraError> {
     // Embed session ID in the URL path so the WS server can identify the session
     // on connect (same pattern as Companion: /ws/cli/{sessionId})
@@ -32,6 +35,30 @@ pub async fn spawn_claude(
         "stream-json".to_string(),
         "--verbose".to_string(),
     ];
+
+    // Model selection (e.g. "claude-sonnet-4-5-20250929", "claude-opus-4-5-20250918")
+    if let Some(m) = model {
+        if !m.is_empty() {
+            args.push("--model".to_string());
+            args.push(m.to_string());
+        }
+    }
+
+    // Permission mode (default, plan, acceptEdits, bypassPermissions)
+    if let Some(mode) = permission_mode {
+        if mode != "default" && !mode.is_empty() {
+            args.push("--permission-mode".to_string());
+            args.push(mode.to_string());
+        }
+    }
+
+    // Resume a previous CLI session
+    if let Some(resume_id) = resume_session_id {
+        if !resume_id.is_empty() {
+            args.push("--resume".to_string());
+            args.push(resume_id.to_string());
+        }
+    }
 
     // If an initial prompt is provided, use -p to kick off the first turn.
     // Otherwise pass -p "" as a required placeholder for headless/SDK mode

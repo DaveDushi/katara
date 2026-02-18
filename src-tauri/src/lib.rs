@@ -48,6 +48,9 @@ pub fn run() {
             commands::claude::interrupt_session,
             commands::claude::get_message_history,
             commands::claude::list_sessions,
+            commands::claude::set_permission_mode,
+            commands::claude::get_session_cost,
+            commands::claude::resume_session,
             // Terminal commands
             commands::terminal::spawn_terminal,
             commands::terminal::write_terminal,

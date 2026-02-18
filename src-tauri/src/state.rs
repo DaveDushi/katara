@@ -28,6 +28,12 @@ pub struct AppState {
     /// When a new WS connection sends system/init, we pop the first pending
     /// session and associate the connection with it.
     pub pending_connections: Mutex<VecDeque<String>>,
+
+    /// Maps CopilotKit thread IDs to Katara session IDs for multi-session routing.
+    pub thread_to_session: RwLock<HashMap<String, String>>,
+
+    /// Reverse map: Katara session ID to CopilotKit thread ID.
+    pub session_to_thread: RwLock<HashMap<String, String>>,
 }
 
 impl AppState {
@@ -40,6 +46,8 @@ impl AppState {
             axum_port: RwLock::new(0),
             event_tx,
             pending_connections: Mutex::new(VecDeque::new()),
+            thread_to_session: RwLock::new(HashMap::new()),
+            session_to_thread: RwLock::new(HashMap::new()),
         }
     }
 }

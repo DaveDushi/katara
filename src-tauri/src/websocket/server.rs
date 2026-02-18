@@ -178,9 +178,17 @@ async fn handle_connection(
                             session.cli_session_id = Some(cli_sid.clone());
                         }
 
+                        // Capture model and permission mode from CLI
+                        if let Some(ref model) = sys.model {
+                            session.model = Some(model.clone());
+                        }
+                        if let Some(ref mode) = sys.permission_mode {
+                            session.permission_mode = mode.clone();
+                        }
+
                         println!(
-                            "[katara] Session {} system/init received (CLI session_id: {:?})",
-                            session_id, sys.session_id
+                            "[katara] Session {} system/init received (CLI session_id: {:?}, model: {:?}, permissionMode: {:?})",
+                            session_id, sys.session_id, sys.model, sys.permission_mode
                         );
 
                         let _ = app_handle.emit(
@@ -217,6 +225,81 @@ async fn handle_connection(
                                 "status": "Active",
                             }),
                         );
+                    }
+                }
+            }
+
+            // Track token usage from assistant messages
+            if let ClaudeMessage::Assistant(ref assistant) = claude_msg {
+                if let Some(ref usage) = assistant.message.usage {
+                    let mut sessions = state.sessions.write().await;
+                    if let Some(session) = sessions.get_mut(&session_id) {
+                        session.usage_totals.add(usage);
+                        let _ = app_handle.emit(
+                            "claude:usage",
+                            serde_json::json!({
+                                "session_id": session_id,
+                                "usage_totals": session.usage_totals,
+                            }),
+                        );
+                    }
+                }
+            }
+
+            // Permission-mode auto-resolve for tool approval requests.
+            // Intercept before broadcast so the frontend never sees auto-handled requests.
+            if let ClaudeMessage::ControlRequest(ref ctrl) = claude_msg {
+                if ctrl.request.subtype == "can_use_tool" {
+                    let (perm_mode, ws_sender) = {
+                        let sessions = state.sessions.read().await;
+                        sessions.get(&session_id).map(|s| {
+                            (s.permission_mode.clone(), s.ws_sender.clone())
+                        }).unwrap_or(("default".to_string(), None))
+                    };
+
+                    let auto_behavior = match perm_mode.as_str() {
+                        "bypassPermissions" => Some("allow"),
+                        "plan" => Some("deny"),
+                        "acceptEdits" => {
+                            let tool_name = ctrl.request.tool_name.as_deref().unwrap_or("");
+                            if matches!(tool_name, "Edit" | "Write" | "MultiEdit" | "write_to_file" | "edit_file" | "create_file") {
+                                Some("allow")
+                            } else {
+                                None // Ask user
+                            }
+                        }
+                        _ => None, // "default" — ask user
+                    };
+
+                    if let Some(behavior) = auto_behavior {
+                        if let (Some(ref req_id), Some(ref ws_tx)) = (&ctrl.request.request_id, &ws_sender) {
+                            use crate::websocket::protocol::{
+                                ControlResponseBody, ControlResponsePayload, ServerMessage,
+                            };
+                            let msg = ServerMessage::ControlResponse {
+                                response: ControlResponseBody {
+                                    subtype: "success".into(),
+                                    request_id: req_id.clone(),
+                                    response: ControlResponsePayload {
+                                        behavior: behavior.into(),
+                                        updated_input: if behavior == "allow" {
+                                            Some(serde_json::json!({}))
+                                        } else {
+                                            None
+                                        },
+                                    },
+                                },
+                            };
+                            let json = serde_json::to_string(&msg).unwrap_or_default();
+                            let _ = ws_tx.send(format!("{}\n", json)).await;
+                            println!(
+                                "[katara] Auto-{} tool {} (permission_mode={})",
+                                behavior,
+                                ctrl.request.tool_name.as_deref().unwrap_or("unknown"),
+                                perm_mode
+                            );
+                            continue; // Skip broadcast — handled automatically
+                        }
                     }
                 }
             }
