@@ -1,6 +1,26 @@
 use serde::Serialize;
 use tokio::process::Child;
 
+use crate::websocket::protocol::Usage;
+
+/// Accumulated token usage for a session.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct UsageTotals {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_creation_input_tokens: u64,
+    pub cache_read_input_tokens: u64,
+}
+
+impl UsageTotals {
+    pub fn add(&mut self, usage: &Usage) {
+        self.input_tokens += usage.input_tokens;
+        self.output_tokens += usage.output_tokens;
+        self.cache_creation_input_tokens += usage.cache_creation_input_tokens;
+        self.cache_read_input_tokens += usage.cache_read_input_tokens;
+    }
+}
+
 /// Represents an active Claude Code CLI session.
 pub struct Session {
     pub id: String,
@@ -16,6 +36,12 @@ pub struct Session {
     pub message_history: Vec<serde_json::Value>,
     /// Timestamp when the session was created.
     pub created_at: std::time::Instant,
+    /// Model used for this session (e.g. "claude-sonnet-4-5-20250929").
+    pub model: Option<String>,
+    /// Permission mode: "default", "plan", "acceptEdits", "bypassPermissions".
+    pub permission_mode: String,
+    /// Accumulated token usage across all turns.
+    pub usage_totals: UsageTotals,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -30,7 +56,12 @@ pub enum SessionStatus {
 }
 
 impl Session {
-    pub fn new(id: String, working_dir: String) -> Self {
+    pub fn new(
+        id: String,
+        working_dir: String,
+        model: Option<String>,
+        permission_mode: Option<String>,
+    ) -> Self {
         Self {
             id,
             status: SessionStatus::Starting,
@@ -40,6 +71,9 @@ impl Session {
             cli_session_id: None,
             message_history: Vec::new(),
             created_at: std::time::Instant::now(),
+            model,
+            permission_mode: permission_mode.unwrap_or_else(|| "default".to_string()),
+            usage_totals: UsageTotals::default(),
         }
     }
 

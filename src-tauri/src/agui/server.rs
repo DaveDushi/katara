@@ -235,10 +235,28 @@ async fn agui_handler_inner(
         // 4. Combine readable context + tools context + user message
         let full_message = format!("{}{}{}", readable_context, tools_context, user_message);
 
-        // 5. Find the active session and send the message.
-        //    Wait up to 15s for a CLI to connect (handles race where
-        //    CopilotKit sends a message before Claude CLI finishes connecting).
-        let (cli_sid, ws_tx) = {
+        // 5. Resolve which session to route to.
+        //    Priority: thread_to_session map > forwardedProps.activeSessionId > first available
+        let target_session_id = {
+            // Check thread mapping first
+            let thread_map = state_clone.thread_to_session.read().await;
+            if let Some(sid) = thread_map.get(&thread_id_clone) {
+                Some(sid.clone())
+            } else {
+                drop(thread_map);
+                // Check forwardedProps.activeSessionId from CopilotKit
+                input
+                    .forwarded_props
+                    .as_ref()
+                    .and_then(|p| p.get("activeSessionId"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            }
+        };
+
+        // 6. Find the target session (or first available) and send the message.
+        //    Wait up to 15s for a CLI to connect.
+        let (resolved_session_id, cli_sid, ws_tx) = {
             let mut found = None;
             for attempt in 0..30 {
                 let mut sessions = state_clone.sessions.write().await;
@@ -257,13 +275,34 @@ async fn agui_handler_inner(
                         })
                         .collect();
                     println!(
-                        "[katara] AG-UI looking for active session. {} session(s): [{}]",
+                        "[katara] AG-UI routing for thread {}. Target: {:?}. {} session(s): [{}]",
+                        &thread_id_clone[..8.min(thread_id_clone.len())],
+                        target_session_id.as_deref().map(|s| &s[..8.min(s.len())]),
                         sessions.len(),
                         session_info.join(", ")
                     );
                 }
 
-                let session = sessions.values_mut().find(|s| s.ws_sender.is_some());
+                // Try target session first, fall back to first available.
+                // Resolve key first to avoid double mutable borrow.
+                let resolved_key = if let Some(ref target) = target_session_id {
+                    if sessions.get(target).map_or(false, |s| s.ws_sender.is_some()) {
+                        Some(target.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+                .or_else(|| {
+                    sessions
+                        .iter()
+                        .find(|(_, s)| s.ws_sender.is_some())
+                        .map(|(k, _)| k.clone())
+                });
+
+                let session = resolved_key.and_then(|k| sessions.get_mut(&k));
+
                 if let Some(session) = session {
                     let ts = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -276,12 +315,13 @@ async fn agui_handler_inner(
                         "id": format!("user-{}", ts),
                     }));
 
+                    let session_id = session.id.clone();
                     let cli_sid = session.cli_session_id.clone().unwrap_or_default();
                     let ws_tx = session.ws_sender.clone();
                     if attempt > 0 {
-                        println!("[katara] AG-UI found active session after {}ms wait", attempt * 500);
+                        println!("[katara] AG-UI found session after {}ms wait", attempt * 500);
                     }
-                    found = Some((cli_sid, ws_tx));
+                    found = Some((session_id, cli_sid, ws_tx));
                     break;
                 }
 
@@ -307,6 +347,20 @@ async fn agui_handler_inner(
             }
         };
 
+        // Store thread <-> session mapping for future requests
+        {
+            state_clone
+                .thread_to_session
+                .write()
+                .await
+                .insert(thread_id_clone.clone(), resolved_session_id.clone());
+            state_clone
+                .session_to_thread
+                .write()
+                .await
+                .insert(resolved_session_id.clone(), thread_id_clone.clone());
+        }
+
         if let Some(ws_tx) = ws_tx {
             let msg = serde_json::json!({
                 "type": "user",
@@ -317,13 +371,19 @@ async fn agui_handler_inner(
             let _ = ws_tx.send(format!("{}\n", msg)).await;
         }
 
-        // 6. Subscribe to Claude events and translate to AG-UI
+        // 7. Subscribe to Claude events and translate to AG-UI.
+        //    Filter events to only process those from the resolved session.
         let mut event_rx = state_clone.event_tx.subscribe();
         let mut bridge = BridgeState::new();
 
         loop {
             match event_rx.recv().await {
                 Ok(ws_event) => {
+                    // Only process events from the session this thread is routed to
+                    if ws_event.session_id != resolved_session_id {
+                        continue;
+                    }
+
                     let agui_events = translate_claude_message(
                         &ws_event.message,
                         &thread_id_clone,
